@@ -50,6 +50,7 @@ classdef DesignerApp < handle
 
         QOGradient % Quaternion based orientation Gradient
         QOHessian % Quaternion based orientation Hessian
+        OrientationThreshold
 
         % UI Elements
         SetStructureButton
@@ -100,7 +101,8 @@ classdef DesignerApp < handle
             obj.LinkAdjustment.created=false;
             % Further setup
             obj.ZeroStructure();
-            
+            obj.OrientationThreshold=1e-3;
+
 
             obj.Palette.orange=[1 0.6 0];
             obj.Palette.lightgray=[0.95 0.95 0.95];
@@ -831,11 +833,22 @@ classdef DesignerApp < handle
             NewValue=event.Value;
             obj.GlobalDeformation.value = event.Value;
             obj.GlobalDeformation.slider.Enable=false;
-            pause(0.01);
-            dValue=(NewValue-PreviousValue)/5;
+            pause(0.001);
+            % dValue=(NewValue-PreviousValue)/10;
+            dValue=0.05*sign(NewValue-PreviousValue);
+
+            obj.OrientationThreshold=1e-3;
             for Value=PreviousValue+dValue:dValue:NewValue
                 obj.MoveActiveNodes(Value);
             end
+            % obj.OrientationThreshold=1e-4;
+            % obj.MoveActiveNodes(Value);
+
+            % for T=2:0.4:5
+            % obj.OrientationThreshold=10^(-T);
+            % obj.MoveActiveNodes(Value);
+            % end
+
             obj.GlobalDeformation.slider.Enable=true;
             pause(0.01);
             obj.GlobalDeformation.value=NewValue;
@@ -881,9 +894,9 @@ classdef DesignerApp < handle
             else
                 obj.LinkAdjustment.HEdgeUI{Loc(1),Loc(2)}.button.BackgroundColor=obj.Palette.cyan;
             end
-           btn.BackgroundColor=obj.Palette.orange;
-           NewDir=lower(btn.Tag(1));
-           NewLoc=[str2num(btn.Tag(2)) str2num(btn.Tag(3))];
+            btn.BackgroundColor=obj.Palette.orange;
+            NewDir=lower(btn.Tag(1));
+            NewLoc=[str2num(btn.Tag(2)) str2num(btn.Tag(3))];
 
             if(NewDir=='v')
                 ThisEdge=obj.VEdges{NewLoc(1),NewLoc(2)};
@@ -891,10 +904,10 @@ classdef DesignerApp < handle
                 ThisEdge=obj.HEdges{NewLoc(1),NewLoc(2)};
             end
 
-           obj.LinkAdjustment.SelectedEdge.dir=NewDir;
-           obj.LinkAdjustment.SelectedEdge.Loc=NewLoc;
-           obj.LinkAdjustment.LengthControl.slider.Value=ThisEdge.length;
-           obj.LinkAdjustment.WidthControl.slider.Value=ThisEdge.width;
+            obj.LinkAdjustment.SelectedEdge.dir=NewDir;
+            obj.LinkAdjustment.SelectedEdge.Loc=NewLoc;
+            obj.LinkAdjustment.LengthControl.slider.Value=ThisEdge.length;
+            obj.LinkAdjustment.WidthControl.slider.Value=ThisEdge.width;
 
             EdgeName=['$' upper(NewDir) '_{' num2str(NewLoc(1)) ',' num2str(NewLoc(2)) '}$'];
             obj.LinkAdjustment.SelectedEdge.label.Text = ['Selected edge: ' EdgeName];
@@ -917,7 +930,7 @@ classdef DesignerApp < handle
             NewBendingAngle=ThisJoint.DeformSlider.Value;
             span= ThisJoint.span;
             Level= ThisJoint.Level;
-            dAngle=(NewBendingAngle-PreviousAngle)/10;
+            dAngle=(NewBendingAngle-PreviousAngle)/5;
             for BendingAngleDegree=PreviousAngle+dAngle:dAngle:NewBendingAngle
 
                 if(ThisJoint.direction=='v')
@@ -946,7 +959,7 @@ classdef DesignerApp < handle
             MotorNum=str2num(src.Tag(2:end));
             PreviousValue=obj.Motors{MotorNum}.ActValue;
             NewValue=event.Value/90;
-            dValue=(NewValue-PreviousValue)/5;
+            dValue=(NewValue-PreviousValue)/10;
             obj.DisableMotorSliders();
             pause(0.01);
 
@@ -1059,7 +1072,7 @@ classdef DesignerApp < handle
             end
         end
 
-        
+
         %% Initialization methods
 
         function InitializeStructure(obj)
@@ -1115,7 +1128,7 @@ classdef DesignerApp < handle
             end
             obj.DeformationRate=zeros(obj.NumActiveNodes,1);
         end
-        
+
         function CreateModeLabels(obj)
             % 1: Building 2:Selecting Joints 3: Moving Joints 4: Check deformation 5: Add Motors 6: Control Motors
             Labels={'1: Building cell structure', '2:Selecting Joints', '3: Moving Joints', '4: Check deformation', '5: Add Motors', '6: Control Motors'};
@@ -1305,13 +1318,21 @@ classdef DesignerApp < handle
                 %                 NonGroundedNodeIndices=1:3*obj.NumActiveNodes;
                 %             end
                 dOrientation=zeros(4*obj.NumActiveNodes,1);
-                %                 dOrientation(NonGroundedNodeIndices)=-obj.QOHessian(NonGroundedNodeIndices,NonGroundedNodeIndices)\obj.QOGradient(NonGroundedNodeIndices);
-                dOrientation(NonGroundedNodeIndices)=-.25*obj.QOGradient(NonGroundedNodeIndices);
+
+                Hessian=obj.QOHessian(NonGroundedNodeIndices,NonGroundedNodeIndices);
+                Gradient=obj.QOGradient(NonGroundedNodeIndices);
+                DetHessian=det(Hessian);
+                if(norm(DetHessian)>1e-10)
+                dOrientation(NonGroundedNodeIndices)=-Hessian\Gradient;
+                else
+                dOrientation(NonGroundedNodeIndices)=-.12*Gradient;
+                end
                 obj.AssignNewOrientation2Nodes(dOrientation);
                 iteration=iteration+1;
-                if(max(dOrientation)<1e-4)
+
+                if(max(abs(dOrientation))< obj.OrientationThreshold)
                     Converged=true;
-                    %                     disp(['Orientation converged in ' num2str(iteration) ' iterations.'])
+                    % disp(['Orientation converged in ' num2str(iteration) ' iterations.'])
                 end
                 if (iteration>5000)
                     Converged=true;
@@ -1321,10 +1342,13 @@ classdef DesignerApp < handle
         end
 
         function QuaternionGradientHessianCalculation(obj,N1,N2,direction)
+            % disp("All Operations")
+            % tic
             Node1Loc=obj.ActiveNodeLocs(N1,:);
             Node1=obj.Nodes{Node1Loc(1),Node1Loc(2)};
             Node2Loc=obj.ActiveNodeLocs(N2,:);
             Node2=obj.Nodes{Node2Loc(1),Node2Loc(2)};
+            I4=eye(4);
 
             if(direction == 'v')
                 RotAxis=[1 0 0];
@@ -1335,16 +1359,25 @@ classdef DesignerApp < handle
             end
             qFrame1=Node1.q;
             qFrame2=Node2.q;
+
             qComp1=MakeQuat(BendingAngle*Node1.Deformation/2*RotAxis);
             qComp2=MakeQuat(-BendingAngle*Node2.Deformation/2*RotAxis);
             qA=QuatProduct(qFrame1,qComp1);
             qB=QuatProduct(qFrame2,qComp2);
-            %             qA=QuatProduct(qComp1,qFrame1);
-            %             qB=QuatProduct(qComp2,qFrame2);
-            E=-QuatDotProduct(qA,qB)^2;
+            % E=-(qA'*qB)^2;
+            dpqAqB=qA'*qB;
 
-            dE_dqA=-QuatDotProduct(qA,qB)*qB'*(eye(4)-qA*qA');
-            dE_dqB=-QuatDotProduct(qA,qB)*qA'*(eye(4)-qB*qB');
+            tpqAqA=qA*qA';
+            tpqBqB=qB*qB';
+
+            [dqAu_dqA,d2qAu_dqA2]=UnitVectorGradHessian(qA);
+            [dqBu_dqB,d2qBu_dqB2]=UnitVectorGradHessian(qB);
+            
+            dE_dqAu= -2*dpqAqB*qB';
+            dE_dqBu= -2*dpqAqB*qA';
+
+            dE_dqA=dE_dqAu*dqAu_dqA;
+            dE_dqB=dE_dqBu*dqBu_dqB;
 
             dqA_dqf1=QuatSkewSymMat(qComp1,'L');
             dqB_dqf2=QuatSkewSymMat(qComp2,'L');
@@ -1352,28 +1385,35 @@ classdef DesignerApp < handle
             dE_dqf1=dE_dqA*dqA_dqf1;
             dE_dqf2=dE_dqB*dqB_dqf2;
 
-            %% The hessians terms here become very complex due to the unit vector condition and need more work
-            %             d2E_dqA2=-2*(qB)*qB';
-            %             d2E_dqB2=-2*(qA)*qA';
-            %             d2E_dqAdqB=-2*qA*qB';
-            %             d2E_dqBdqA=-2*qB*qA';
-            %%
+            %% Hessian calculation
 
-            %             d2E_dqf12=d2E_dqA2*dqA_dqf1*dqA_dqf1;
-            %             d2E_dqf22=d2E_dqB2*dqB_dqf2*dqB_dqf2;
-            %             d2E_dqf1dqf2=d2E_dqAdqB*dqA_dqf1*dqB_dqf2;
-            %             dE2_dqf2dqf1=d2E_dqBdqA*dqB_dqf2*dqA_dqf1;
+            d2E_dqAu2= -2*tpqBqB;
+            d2E_dqBu2= -2*tpqAqA;
+            d2E_dqAudqBu= -2*(qB*qA'+ dpqAqB*I4);
+            % d2E_dqBudqAu= -2*qA*qB';
+
+            d2E_dqA2= dqAu_dqA'*d2E_dqAu2*dqAu_dqA + tensorprod(d2qAu_dqA2,dE_dqAu,3,2);
+            d2E_dqB2= dqBu_dqB'*d2E_dqBu2*dqBu_dqB + tensorprod(d2qBu_dqB2,dE_dqBu,3,2);
+
+            d2E_dqAdqB= dqAu_dqA'*d2E_dqAudqBu*dqBu_dqB;
+            % d2E_dqBdqA= dqBu_dqB'*d2E_dqBudqAu*dqAu_dqA;
+
+            d2E_dqf12=dqA_dqf1'*d2E_dqA2*dqA_dqf1;
+            d2E_dqf22=dqB_dqf2'*d2E_dqB2*dqB_dqf2;
+            d2E_dqf1dqf2=dqA_dqf1'*d2E_dqAdqB*dqB_dqf2;
+            % dE2_dqf2dqf1=dqB_dqf2'*d2E_dqBdqA'*dqA_dqf1;
             %
             N1Indices=N1*4+(-3:0);
             N2Indices=N2*4+(-3:0);
             % Gradient Calculation
             obj.QOGradient(N1Indices)=obj.QOGradient(N1Indices)+dE_dqf1';
             obj.QOGradient(N2Indices)=obj.QOGradient(N2Indices)+dE_dqf2';
-            %             % Hessian Calculation
-            %             obj.QOHessian(N1Indices,N1Indices)=obj.QOHessian(N1Indices,N1Indices)+d2E_dqf12;
-            %             obj.QOHessian(N1Indices,N2Indices)=d2E_dqf1dqf2;
-            %             obj.QOHessian(N2Indices,N1Indices)=dE2_dqf2dqf1;
-            %             obj.QOHessian(N2Indices,N2Indices)=obj.QOHessian(N2Indices,N2Indices)+d2E_dqf22;
+            % Hessian Calculation
+            obj.QOHessian(N1Indices,N1Indices)=obj.QOHessian(N1Indices,N1Indices)+d2E_dqf12;
+            obj.QOHessian(N1Indices,N2Indices)=d2E_dqf1dqf2;
+            obj.QOHessian(N2Indices,N1Indices)=d2E_dqf1dqf2';
+            obj.QOHessian(N2Indices,N2Indices)=obj.QOHessian(N2Indices,N2Indices)+d2E_dqf22;
+            % toc
         end
 
         function AssignNewOrientation2Nodes(obj,dOrientation)
@@ -1386,6 +1426,11 @@ classdef DesignerApp < handle
         % Position Estimation
         function NodePositionEstimation(obj)
             % Per edge compute the distance between connected nodes
+
+            Converged=false;
+            iteration=0;
+            while(~Converged)
+
 
             % Refreshing the gradient and hessian
             obj.CDGradient=zeros(obj.NumActiveNodes*3,1);
@@ -1400,7 +1445,7 @@ classdef DesignerApp < handle
                 GroundNode=obj.Nodes{obj.GroundedCellLoc(1),obj.GroundedCellLoc(2)};
                 GroundNode.Position=GroundNode.InitialPosition;
             end
-
+            
             % Set up horizontal flexible links
             for i = 1:size(obj.H_EdgeMatrix,1)
                 for j = 1:size(obj.H_EdgeMatrix,2)
@@ -1424,18 +1469,32 @@ classdef DesignerApp < handle
                     end
                 end
             end
+       
 
 
             NumGroundedNode=obj.ActiveNodeNums(obj.GroundedCellLoc(1),obj.GroundedCellLoc(2));
             GroundedNodeIndices=NumGroundedNode*3+(-2:0);
             NonGroundedNodeIndices=1:3*obj.NumActiveNodes;
             NonGroundedNodeIndices(GroundedNodeIndices)=[];
-            %             else
-            %                 NonGroundedNodeIndices=1:3*obj.NumActiveNodes;
-            %             end
+
             dPosNodes=zeros(3*obj.NumActiveNodes,1);
             dPosNodes(NonGroundedNodeIndices)=-obj.CDHessian(NonGroundedNodeIndices,NonGroundedNodeIndices)\obj.CDGradient(NonGroundedNodeIndices);
+
             obj.AssignNewPosition2Nodes(dPosNodes);
+            
+
+            iteration=iteration+1;
+
+                if(max(abs(dPosNodes))< 1e-2 )%obj.PositionThreshold)
+                    Converged=true;
+                    % disp(['Position converged in ' num2str(iteration) ' iterations.'])
+                end
+                if (iteration>5000)
+                    Converged=true;
+                    disp(['Position did not converge in ' num2str(iteration) ' iterations.'])
+                end
+            end
+
         end
 
         function CornerDistanceGradientHessianCalculation(obj,N1,N2,direction)
@@ -1454,8 +1513,6 @@ classdef DesignerApp < handle
                 Node2LeftCorner = Node2.Position + Node2.R0*Node2.Corners(:,1);
                 EdgeVector= Node1RightCorner - Node2LeftCorner;
             end
-            % obj.CDGradient % Corner distance gradient
-            % obj.CDHessian % Corner distance hessian
             EdgeLength=norm(EdgeVector);
             if(EdgeLength>1e-6)
                 EdgeTangent=EdgeVector/EdgeLength;
@@ -1493,30 +1550,22 @@ classdef DesignerApp < handle
                 obj.Nodes{NodeLoc(1),NodeLoc(2)}.UpdatePosition(dPosNodes(3*NodeNum+(-2:0)));
                 obj.Nodes{NodeLoc(1),NodeLoc(2)}.UpdatePlot();
             end
-            drawnow;
+            % tic
+            % % drawnow;
+            pause(0.001);
+            % toc
         end
 
         function MoveActiveNodes(obj,val)
-            obj.UpdateDeformations(val);
 
+            obj.UpdateDeformations(val);
+            
             % First orientation update - Per edge orientation energy optimization
             obj.NodeOrientationEstimation();
-            % Second orientation update - Turn around z by deformation
 
+            % Second orientation update - Turn around z by deformation
             obj.FullOrientationUpdate();
 
-            % Deformation update
-            %             for k=1:obj.NumActiveNodes
-            %                 NodeLoc=obj.ActiveNodeLocs(k,:);
-            %                 Direction=SetDir(sum(NodeLoc));
-            %                 if(isscalar(val)) % If all nodes are deformed the same amount
-            %                     DeformationAmount=val;
-            %                 else               % If separate deformations are applied to each node
-            %                     DeformationAmount=val(k);
-            %                 end
-            %                 obj.Nodes{NodeLoc(1),NodeLoc(2)}.UpdateDeformation(DeformationAmount,Direction);
-            %             end
-            %
 
             % Position update - Per edge stretch energy optimization
             NodePositionEstimation(obj);
@@ -1583,11 +1632,6 @@ q1ML=QuatSkewSymMat(q1,'L');
 q3=q1ML*q2;
 end
 
-function a = QuatDotProduct(q1,q2)
-a=q1'*q2;
-%     q3=q2*q1;
-%     a=q3.parts;
-end
 
 function M4=QuatSkewSymMat(x,dir)
 if(dir=='L')
@@ -1601,5 +1645,23 @@ else
         x(3) -x(4) x(1) x(2);...
         x(4) x(3) -x(2) x(1)];
 end
+
+end
+
+function [dqAu_dqA,d2qAu_dqA2]=UnitVectorGradHessian(qA)
+
+I4=eye(4);
+
+%Gradient
+tpqAqA=qA*qA';
+dqAu_dqA = I4-tpqAqA';
+
+%Hessian
+PartA1=-tensorprod(qA,I4,2,3);
+PartA2=permute(PartA1,[2 1 3]);
+PartA3=3*tensorprod((tpqAqA),qA,3,2);
+PartA4=-tensorprod(I4,qA,3,2);
+
+d2qAu_dqA2= PartA1 + PartA2 + PartA3 + PartA4;
 
 end
