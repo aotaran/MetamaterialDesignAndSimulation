@@ -101,7 +101,7 @@ classdef DesignerApp < handle
             obj.LinkAdjustment.created=false;
             % Further setup
             obj.ZeroStructure();
-            obj.OrientationThreshold=1e-3;
+            obj.OrientationThreshold=1e-4;
 
 
             obj.Palette.orange=[1 0.6 0];
@@ -837,17 +837,9 @@ classdef DesignerApp < handle
             % dValue=(NewValue-PreviousValue)/10;
             dValue=0.05*sign(NewValue-PreviousValue);
 
-            obj.OrientationThreshold=1e-3;
             for Value=PreviousValue+dValue:dValue:NewValue
                 obj.MoveActiveNodes(Value);
             end
-            % obj.OrientationThreshold=1e-4;
-            % obj.MoveActiveNodes(Value);
-
-            % for T=2:0.4:5
-            % obj.OrientationThreshold=10^(-T);
-            % obj.MoveActiveNodes(Value);
-            % end
 
             obj.GlobalDeformation.slider.Enable=true;
             pause(0.01);
@@ -1323,7 +1315,8 @@ classdef DesignerApp < handle
                 Gradient=obj.QOGradient(NonGroundedNodeIndices);
                 DetHessian=det(Hessian);
                 if(norm(DetHessian)>1e-10)
-                dOrientation(NonGroundedNodeIndices)=-Hessian\Gradient;
+                % if(DetHessian>1e-10)
+                dOrientation(NonGroundedNodeIndices)=-1*Hessian\Gradient-.1*Gradient;
                 else
                 dOrientation(NonGroundedNodeIndices)=-.12*Gradient;
                 end
@@ -1334,7 +1327,7 @@ classdef DesignerApp < handle
                     Converged=true;
                     % disp(['Orientation converged in ' num2str(iteration) ' iterations.'])
                 end
-                if (iteration>5000)
+                if (iteration>100)
                     Converged=true;
                     disp(['Did not converge in ' num2str(iteration) ' iterations.'])
                 end
@@ -1379,8 +1372,11 @@ classdef DesignerApp < handle
             dE_dqA=dE_dqAu*dqAu_dqA;
             dE_dqB=dE_dqBu*dqBu_dqB;
 
-            dqA_dqf1=QuatSkewSymMat(qComp1,'L');
-            dqB_dqf2=QuatSkewSymMat(qComp2,'L');
+            % dqA_dqf1=QuatSkewSymMat(qComp1,'L');
+            % dqB_dqf2=QuatSkewSymMat(qComp2,'L');
+
+            dqA_dqf1=QuatSkewSymMat(qComp1,'R');
+            dqB_dqf2=QuatSkewSymMat(qComp2,'R');
 
             dE_dqf1=dE_dqA*dqA_dqf1;
             dE_dqf2=dE_dqB*dqB_dqf2;
@@ -1402,17 +1398,25 @@ classdef DesignerApp < handle
             d2E_dqf22=dqB_dqf2'*d2E_dqB2*dqB_dqf2;
             d2E_dqf1dqf2=dqA_dqf1'*d2E_dqAdqB*dqB_dqf2;
             % dE2_dqf2dqf1=dqB_dqf2'*d2E_dqBdqA'*dqA_dqf1;
+
+            % Additional terms due to new energy terms
+            % dNewE_df1=(qFrame1'*qFrame1)*qFrame1;
+            % dNewE_df2=(qFrame2'*qFrame2)*qFrame2;
+
+            % d2NewE_df12=2*qFrame1*qFrame1'+(qFrame1'*qFrame1-1)*I4;
+            % d2NewE_df22=2*qFrame2*qFrame2'+(qFrame2'*qFrame2-1)*I4;
+
             %
             N1Indices=N1*4+(-3:0);
             N2Indices=N2*4+(-3:0);
             % Gradient Calculation
-            obj.QOGradient(N1Indices)=obj.QOGradient(N1Indices)+dE_dqf1';
-            obj.QOGradient(N2Indices)=obj.QOGradient(N2Indices)+dE_dqf2';
+            obj.QOGradient(N1Indices)=obj.QOGradient(N1Indices)+dE_dqf1';%+dNewE_df1;
+            obj.QOGradient(N2Indices)=obj.QOGradient(N2Indices)+dE_dqf2';%+dNewE_df2;
             % Hessian Calculation
-            obj.QOHessian(N1Indices,N1Indices)=obj.QOHessian(N1Indices,N1Indices)+d2E_dqf12;
+            obj.QOHessian(N1Indices,N1Indices)=obj.QOHessian(N1Indices,N1Indices)+d2E_dqf12;%+d2NewE_df12;
             obj.QOHessian(N1Indices,N2Indices)=d2E_dqf1dqf2;
             obj.QOHessian(N2Indices,N1Indices)=d2E_dqf1dqf2';
-            obj.QOHessian(N2Indices,N2Indices)=obj.QOHessian(N2Indices,N2Indices)+d2E_dqf22;
+            obj.QOHessian(N2Indices,N2Indices)=obj.QOHessian(N2Indices,N2Indices)+d2E_dqf22;%+d2NewE_df22;
             % toc
         end
 
