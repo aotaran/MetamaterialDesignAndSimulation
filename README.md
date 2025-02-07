@@ -1,2 +1,10 @@
 # Metamaterial Design and Simulation
-Simulation files for the locally actuated metamaterials. The description of the interface will be added soon. 
+The metamaterial software is implemented in Matlab. After downloading/cloning the repository, you can run the Metamaterial Designer file to start designing and simulating your sparsely actuated metamaterial. The walkthrough of the design and simulation user interface can be found in our TEI'25 paper or in the supplementary file (to be added soon). 
+
+Below is a speed up video of designing and simulating one of the example applications, sparsely controlled gripper.
+
+<figure class="video_container">
+  <video controls="true" allowfullscreen="true" width="100%">
+    <source src="/videos/MetamaterialAppsShort.mp4" type="video/mp4" width="100%">
+  </video>
+</figure>
