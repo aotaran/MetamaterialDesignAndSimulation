@@ -5,6 +5,6 @@ Below is a sample video of designing and simulating one of the example applicati
 
 <figure class="video_container">
   <video controls="true" allowfullscreen="true" width="100%">
-    <source src="/videos/MetamaterialAppsShort.mp4" type="video/mp4" width="100%">
+    <source src="/MetamaterialGripper4x.mp4" type="video/mp4" width="100%">
   </video>
 </figure>
